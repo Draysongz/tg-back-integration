@@ -89,6 +89,7 @@ router.post('/login', getIP, async (req, res) => {
             const country = await fetchCountryFromIP(ipAddress);
             const referralCodeForUser = await generateReferralCode();
             user = await createUser(telegramUser, authDate, ipAddress, country, referralCodeForUser, referralCode);
+
             console.log('New user registered:', user);
         } else {
             user.lastLogin = new Date();
@@ -96,6 +97,7 @@ router.post('/login', getIP, async (req, res) => {
             console.log('User logged in:', user);
         }
 
+        const ref = await getReferralDetails(user._id)
         const dailyCheckInData = await handleDailyCheckIn(user);
         const token = generateToken(user.id);
 
@@ -103,6 +105,7 @@ router.post('/login', getIP, async (req, res) => {
             msg: 'Success',
             user,
             token,
+            ref,
             dailyCheckIn: dailyCheckInData,
         });
     } catch (err) {
@@ -123,7 +126,7 @@ async function fetchCountryFromIP(ipAddress) {
 }
 
 async function createUser(telegramUser, authDate, ipAddress, country, referralCodeForUser, referralCode) {
-    const newUser = new User({
+    const newUser = new User({ 
         telegramId: telegramUser.id.toString(),
         username: telegramUser.username,
         first_name: telegramUser.first_name,
@@ -146,6 +149,8 @@ async function createUser(telegramUser, authDate, ipAddress, country, referralCo
             await saveReferral(referrer, newUser);
         }
     }
+
+    
 
     await newUser.save();
     return newUser;
@@ -195,6 +200,29 @@ async function handleDailyCheckIn(user) {
 function generateToken(userId) {
     const payload = { user: { id: userId } };
     return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
+}
+
+const Referral = require('../models/Referral'); // Adjust path as necessary
+
+// Function to fetch referral details
+async function getReferralDetails(userId) {
+    try {
+        const user = await User.findById(userId).populate('referredBy'); // Populate the referrer details
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        const referrals = await Referral.find({ referrer: user._id }).populate('referee'); // Get all referrals made by the user
+
+        return {
+            referredBy: user.referredBy ? user.referredBy.username : 'No referrer', // Return referrer username or default message
+            referralCount: referrals.length, // Count of referrals
+            referrals, // List of referral details
+        };
+    } catch (error) {
+        console.error('Error fetching referral details:', error.message);
+        throw error; // Rethrow the error for handling in your API route
+    }
 }
 
 
